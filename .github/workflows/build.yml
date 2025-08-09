@@ -1,0 +1,67 @@
+name: Build EXEs (PyInstaller)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  list-scripts:
+    runs-on: ubuntu-latest
+    outputs:
+      scripts: ${{ steps.collect.outputs.scripts }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: collect
+        shell: bash
+        run: |
+          python - <<'PY' > scripts.json
+import json, pathlib
+files = [p.name for p in pathlib.Path('src').glob('*.py') if not p.name.startswith('_') and p.name not in ('rdp_taramasi.py','rdp_acik_makine_tespiti.py')]
+print(json.dumps(files))
+PY
+          echo "scripts=$(cat scripts.json)" >> $GITHUB_OUTPUT
+
+  build:
+    needs: list-scripts
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        script: ${{ fromJSON(needs.list-scripts.outputs.scripts) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Set base name
+        id: meta
+        shell: pwsh
+        run: |
+          $n = "${{ matrix.script }}".Replace(".py","")
+          echo "basename=$n" >> $env:GITHUB_OUTPUT
+
+      - name: Build with PyInstaller
+        shell: pwsh
+        run: |
+          $name = "${{ steps.meta.outputs.basename }}"
+          pyinstaller --onefile --clean "src\${{ matrix.script }}" --name "$name"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.basename }}
+          path: dist\*.exe
+          if-no-files-found: error
