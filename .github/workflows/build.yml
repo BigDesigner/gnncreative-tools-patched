@@ -12,15 +12,11 @@ jobs:
       scripts: ${{ steps.collect.outputs.scripts }}
     steps:
       - uses: actions/checkout@v4
+
       - id: collect
-        shell: bash
         run: |
-          python - <<'PY' > scripts.json
-import json, pathlib
-files = [p.name for p in pathlib.Path('src').glob('*.py') if not p.name.startswith('_') and p.name not in ('rdp_taramasi.py','rdp_acik_makine_tespiti.py')]
-print(json.dumps(files))
-PY
-          echo "scripts=$(cat scripts.json)" >> $GITHUB_OUTPUT
+          python -c "import json, pathlib; exclude={'_common.py','rdp_taramasi.py','rdp_acik_makine_tespiti.py'}; print(json.dumps([p.name for p in pathlib.Path('src').glob('*.py') if p.name not in exclude]))" > scripts.json
+          echo "scripts=$(cat scripts.json)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: list-scripts
@@ -44,24 +40,24 @@ PY
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          if (Test-Path requirements.txt) { pip install -r requirements.txt }
+          pip install pyinstaller
 
-      - name: Set base name
+      - name: Compute names
         id: meta
         shell: pwsh
         run: |
-          $n = "${{ matrix.script }}".Replace(".py","")
-          echo "basename=$n" >> $env:GITHUB_OUTPUT
+          $name = [System.IO.Path]::GetFileNameWithoutExtension("${{ matrix.script }}")
+          echo "name=$name" >> $env:GITHUB_OUTPUT
 
       - name: Build with PyInstaller
         shell: pwsh
         run: |
-          $name = "${{ steps.meta.outputs.basename }}"
-          pyinstaller --onefile --clean "src\${{ matrix.script }}" --name "$name"
+          pyinstaller --onefile --clean "src\${{ matrix.script }}" --name "${{ steps.meta.outputs.name }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.meta.outputs.basename }}
-          path: dist\*.exe
+          name: ${{ steps.meta.outputs.name }}
+          path: dist\${{ steps.meta.outputs.name }}.exe
           if-no-files-found: error
